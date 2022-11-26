@@ -1,0 +1,179 @@
+---
+title: "Topic modeling: STM"
+author: 
+date: 
+output:
+  html_document:
+    toc: yes
+    keep_md: yes
+    df_print: kable
+    number_sections: no
+    highlight: tango
+    theme: lumen
+    toc_depth: 3
+    toc_float: yes
+    css: custom.css
+    self_contained: no
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+  
+<style>
+div.answer {background-color:#f3f0ff; border-radius: 5px; padding: 20px;}
+</style>
+
+
+```{r, include = F}
+knitr::opts_chunk$set(echo = TRUE,
+                      eval = TRUE,
+                      error = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      comment = NA)
+```
+
+<br>
+
+***
+
+```{r setup, include = T}
+# loading packages
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(manifestoR, quanteda, tidyr, purrr, ggplot2, 
+               tidytext, httr, rvest, readr, xml2, reshape2,
+               stringr, stringi, dplyr, tibble, lexicon,
+               NMF, topicmodels, LDAvis, stm)
+```
+
+```{r}
+df <- read.csv("D:/Desktop/02 Text as Data/antitRust/data/df_clean.csv")
+```
+
+```{r}
+processed <- textProcessor(documents=df$text,
+                                 metadata = df,
+                                 lowercase = TRUE, #*
+                                 removestopwords = TRUE, #*
+                                 removenumbers = TRUE, #*
+                                 removepunctuation = TRUE, #*
+                                 stem = TRUE, #*
+                                 wordLengths = c(3,Inf), #*
+                                 sparselevel = 1, #*
+                                 language = "en", #*
+                                 verbose = TRUE, #*
+                                 onlycharacter = TRUE, # not def
+                                 striphtml = FALSE, #*
+                                 customstopwords = NULL, #*
+                                 v1 = FALSE) #*
+
+plotRemoved(processed$documents, lower.thresh=seq(1,200, by=100))
+
+out <- prepDocuments(processed$documents, processed$vocab, processed$meta, lower.thresh = 20)
+
+```
+
+```{r}
+#search no. of topics
+kResult <- searchK(out$documents, out$vocab, K=c(5,10), prevalence=~company+s(year),
+                   data=out$meta)
+plot(kResult)
+```
+
+
+```{r}
+gafamfit <- stm(out$documents, out$vocab, K=10, prevalence=~company+s(year), 
+                       max.em.its=75, data=out$meta, init.type="Spectral", 
+                       seed=28)
+
+labelTopics(gafamfit)
+```
+
+```{r}
+#par(bty="n",col="#de2d26",lwd=3)
+plot.STM(gafamfit,type="summary", n = 5 ,text.cex=.7, width=80, cex.main =.8, xlim=c(0,.3))
+plot(gafamfit, type="labels", topics=c(7,5,10))
+plot(gafamfit, type="labels", topics=c(8,2,9))
+plot(gafamfit, type="labels", topics=c(1,4,6,3))
+```
+
+```{r}
+# correlation of the topics
+corr <- topicCorr(gafamfit)
+plot(corr)
+plot(gafamfit, type="labels", topics=c(6,9,4,1,10))
+```
+
+```{r}
+df_fulltext <- df$text
+df_shorttext <- substr(df$text,1,500)
+
+findThoughts(gafamfit, texts=df$title, n=3, topics=7)
+
+df %>% filter(str_detect(title, "US: Microsoft, Oracle gear up for latest non-poaching fight"))
+
+```
+
+```{r}
+out$meta$company <- as.factor(out$meta$company)
+prep <- estimateEffect(1:10 ~ company+s(year), gafamfit, meta=out$meta, 
+                       uncertainty="Global")
+
+summary(prep, topics=c(7,10))
+
+plot(prep, covariate="company", topics=c(7,5,10), model=gafamfit, 
+     method="difference", cov.value1="Amazon", cov.value2="Microsoft",
+     xlab="", main="Effect of Company",
+     xlim=c(-.15,.15)) #labeltype ="custom", custom.labels=c())
+
+```
+```{r}
+plot(gafamfit, type="perspectives", topics=c(7,10))
+     
+cloud(gafamfit, topic=7)
+
+```
+
+
+
+
+```{r}
+topicQuality(model=gafamfit, documents=out$documents)
+```
+
+
+
+```{r}
+# english_words <- readLines("D:/Documents/R/win-library/4.1/hunspell/dict/en_US.dic") %>% 
+#   gsub("/.+", "", .)
+# 
+# dfmat <- df$text %>%
+#         tokens(remove_punct = TRUE, remove_numbers = TRUE, remove_symbols = TRUE) %>%
+#         tokens_remove(pattern=stopwords("en")) %>%
+#         tokens_remove("[^[:alnum:]]") %>%
+#         tokens_keep(english_words, valuetype = "fixed") %>% 
+#         #tokens_remove(omit_words) %>%
+#         tokens_wordstem() %>%
+#         dfm()  %>%
+#         dfm_trim(min_termfreq = 10) 
+# 
+# dfm_stm <- convert(dfmat, to = "stm")
+
+# plotRemoved(dfm_stm$documents, lower.thresh=seq(1,200, by=100))
+# 
+# 
+# model <- stm(documents = dfm_stm$documents,
+#            vocab = dfm_stm$vocab,
+#            K = 10,
+#            verbose = TRUE)
+
+```
+
+```{r}
+# labelTopics(model)
+# 
+# 
+# par(bty="n",col="#de2d26",lwd=3)
+# plot.STM(model,type="summary", label="frex", n = 3, main = "2020 Republicans", text.cex=.8, width=30, cex.main =.8)
+
+```
