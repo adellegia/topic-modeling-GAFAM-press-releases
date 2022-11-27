@@ -1,0 +1,329 @@
+---
+title: "Topic modeling: STM"
+author: 
+date: 
+output:
+  html_document:
+    toc: yes
+    keep_md: yes
+    df_print: kable
+    number_sections: no
+    highlight: tango
+    theme: lumen
+    toc_depth: 3
+    toc_float: yes
+    css: custom.css
+    self_contained: no
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+  
+<style>
+div.answer {background-color:#f3f0ff; border-radius: 5px; padding: 20px;}
+</style>
+
+
+```{r, include = F}
+knitr::opts_chunk$set(echo = TRUE,
+                      eval = TRUE,
+                      error = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      comment = NA)
+```
+
+<br>
+
+***
+
+```{r setup, include = T}
+# loading packages
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(manifestoR, quanteda, tidyr, purrr, ggplot2, 
+               tidytext, httr, rvest, readr, xml2, reshape2,
+               stringr, stringi, dplyr, tibble, lexicon,
+               NMF, topicmodels, LDAvis, stm)
+```
+
+```{r}
+dir <- "D:/Desktop/02 Text as Data/antitRust"
+
+df <- read.csv(file.path(dir, "data/df_clean_eng.csv")) %>%
+  mutate(document = 1:4256)
+```
+
+
+```{r}
+df %>% 
+ group_by(year) %>%
+ summarise(counts = n()) %>% 
+ arrange(desc(year))
+
+df %>% 
+ filter(country != "None") %>% 
+ group_by(country) %>%
+ summarise(counts = n()) %>%
+ arrange(desc(counts))
+
+```
+
+```{r}
+processed <- textProcessor(documents=df$text,
+                                 metadata = df,
+                                 lowercase = TRUE, #*
+                                 removestopwords = TRUE, #*
+                                 removenumbers = TRUE, #*
+                                 removepunctuation = TRUE, #*
+                                 stem = TRUE, #*
+                                 wordLengths = c(3,Inf), #*
+                                 sparselevel = 1, #*
+                                 language = "en", #*
+                                 verbose = TRUE, #*
+                                 onlycharacter = TRUE, # not def
+                                 striphtml = FALSE, #*
+                                 customstopwords = NULL, #*
+                                 v1 = FALSE) #*
+
+plotRemoved(processed$documents, lower.thresh=seq(1,200, by=100))
+
+out <- prepDocuments(processed$documents, processed$vocab, processed$meta, lower.thresh = 20)
+
+```
+
+```{r}
+#search no. of topics
+kResult <- searchK(out$documents, out$vocab, K=c(10,100), prevalence=~company_search+s(year),
+                   data=out$meta)
+```
+
+```{r}
+png(file.path(dir, "/plots/stm_searchK.png"), width = 1000, height = 800)
+plot(kResult)
+dev.off()
+```
+
+
+```{r}
+gafamfit <- stm(out$documents, out$vocab, K=20, prevalence=~company_search+s(year), 
+                       max.em.its=75, data=out$meta, init.type="Spectral", 
+                       seed=28)
+```
+
+```{r}
+labelTopics(gafamfit)
+```
+
+```{r}
+#par(bty="n",col="#de2d26",lwd=3)
+png(file.path(dir, "/plots/stm_top_topics.png"), width = 1000, height = 800)
+plot.STM(gafamfit,type="summary", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3)) #cex.main =1
+dev.off()
+
+png(file.path(dir, "/plots/stm_top_topics_unique.png"), width = 1000, height = 800)
+plot.STM(gafamfit,type="summary", label="frex", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3)) #cex.main =1
+dev.off()
+
+plot(gafamfit, type="labels", topics=c(4,8,14,17))
+plot(gafamfit, type="labels", topics=c(6,16,3,12))
+plot(gafamfit, type="labels", topics=c(11,15,19,20))
+```
+
+## Topic Correlation
+
+```{r}
+# correlation of the topics
+corr <- topicCorr(gafamfit)
+png(file.path(dir, "/plots/stm_topic_correlation.png"), width = 1000, height = 800)
+plot(corr)
+dev.off()
+
+plot(gafamfit, type="labels", topics=c(1,8,7))
+plot(gafamfit, type="labels", topics=c(3,6,5))
+```
+
+## Doc-topic charts
+```{r}
+doc_topic <- tidy(gafamfit, matrix = "theta") %>%
+  left_join(out$meta, by="document")
+
+# topic by platform
+share_company <- doc_topic %>% 
+ filter(year %in% c(2012:2022)) %>% 
+ group_by(company_search, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(company_search) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+
+plot1 <- ggplot(share_company, aes(x = topic, y = company_search, fill = share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Platform",
+       fill = "% share",
+       title = "Share of Topics by Platform",
+       subtitle = "STM with 20 topics") 
+plot1
+ggsave(filename=file.path(dir, "plots/stm_share_platforms.png"), plot=plot1, device="png", 
+       width = 12, height = 7)
+
+```
+
+
+```{r}
+# topic by year
+share_period <- doc_topic %>%
+  filter(year %in% c(2012:2022)) %>% 
+  group_by(year, topic) %>%
+  summarise(gamma = sum(gamma)) %>%
+  group_by(year) %>%
+  mutate(year_share = gamma/sum(gamma)) %>%
+  ungroup() %>%
+  mutate(topic = factor(topic))
+
+plot2 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = year_share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Year",
+       fill = "% share",
+       title = "Share of Topics by Year",
+       subtitle = "STM with 20 topics") 
+plot2
+ggsave(filename= file.path(dir, "plots/stm_share_year.png"), plot=plot2, device="png", 
+       width = 12, height = 7)
+
+```
+
+## Topic-term charts
+```{r}
+topic_term <- tidy(gafamfit, matrix = "beta")
+
+term_share <- topic_term %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+plot3 <-term_share %>%
+      mutate(term = reorder_within(term, beta, topic)) %>%
+      ggplot(aes(beta, term, fill = "red")) +
+      geom_bar(stat="identity", width = .5) +
+      facet_wrap(~ topic, scales = "free", ncol=5) + 
+      #xlim(0, 0.08) +
+      scale_y_reordered() +
+      labs(title = "STM") +
+      scale_fill_identity() +
+      theme_test() +
+      theme(axis.text.y = element_text(size = 8),
+            axis.text.x = element_text(size = 8),
+            strip.text.x = element_text(size = 8)) +
+    labs(y = "Term", x = "Term probability per topic") 
+
+plot3
+
+ggsave(filename= file.path(dir, "plots/stm_term_share.png"), plot=plot3, device="png", 
+       width = 12, height = 7)
+```
+
+
+```{r}
+df_fulltext <- df$text
+df_shorttext <- substr(df$text,1,500)
+
+findThoughts(gafamfit, texts=df$title, n=3, topics=2)
+
+#df %>% filter(str_detect(title, "US: Microsoft, Oracle gear up for latest non-poaching fight"))
+
+```
+
+## Estimate Effect
+
+```{r}
+out$meta$company <- as.factor(out$meta$company)
+prep <- estimateEffect(1:10 ~ company+s(year), gafamfit, meta=out$meta, 
+                       uncertainty="Global")
+
+summary(prep, topics=c(7,10))
+```
+
+
+```{r}
+plot(prep, covariate="company", topics=c(7,5,10), model=gafamfit, 
+     method="difference", cov.value1="Amazon", cov.value2="Microsoft",
+     xlab="", main="Effect of Company",
+     xlim=c(-.15,.15)) #labeltype ="custom", custom.labels=c())
+
+```
+
+
+```{r}
+plot(gafamfit, type="perspectives", topics=c(7,10))
+     
+cloud(gafamfit, topic=7)
+
+```
+
+
+
+
+```{r}
+topicQuality(model=gafamfit, documents=out$documents)
+```
+
+
+
+```{r}
+# english_words <- readLines("D:/Documents/R/win-library/4.1/hunspell/dict/en_US.dic") %>% 
+#   gsub("/.+", "", .)
+# 
+# dfmat <- df$text %>%
+#         tokens(remove_punct = TRUE, remove_numbers = TRUE, remove_symbols = TRUE) %>%
+#         tokens_remove(pattern=stopwords("en")) %>%
+#         tokens_remove("[^[:alnum:]]") %>%
+#         tokens_keep(english_words, valuetype = "fixed") %>% 
+#         #tokens_remove(omit_words) %>%
+#         tokens_wordstem() %>%
+#         dfm()  %>%
+#         dfm_trim(min_termfreq = 10) 
+# 
+# dfm_stm <- convert(dfmat, to = "stm")
+
+# plotRemoved(dfm_stm$documents, lower.thresh=seq(1,200, by=100))
+# 
+# 
+# model <- stm(documents = dfm_stm$documents,
+#            vocab = dfm_stm$vocab,
+#            K = 10,
+#            verbose = TRUE)
+
+```
+
+```{r}
+# labelTopics(model)
+# 
+# 
+# par(bty="n",col="#de2d26",lwd=3)
+# plot.STM(model,type="summary", label="frex", n = 3, main = "2020 Republicans", text.cex=.8, width=30, cex.main =.8)
+
+```
