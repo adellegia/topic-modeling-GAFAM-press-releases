@@ -1,0 +1,216 @@
+---
+title: "LDA"
+output: html_document
+date: '2022-11-26'
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      error = FALSE, 
+                      message = FALSE)
+```
+
+```{r, include = FALSE}
+pacman::p_load(tidyverse, readr, stringr, quanteda, quanteda.textstats, rvest, 
+               tibble, xml2, manifestoR, topicmodels, tidytext, stm, kableExtra,
+               janitor)
+
+path_repo <- "/Users/janinedevera/Documents/School/MDS 2021-2023/Semester 3/2 Text as Data/Project/antitRust"
+path_charts = paste0(path_repo, "/src/R/charts")
+```
+
+```{r, include = FALSE}
+charts.theme <- theme(axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+                      axis.title.y.right = element_text(size = 12, margin = margin(l = 15)),
+                      axis.title.x = element_text(size = 12, margin = margin(t = 15)),
+                      axis.text.x = element_text(size = 12),
+                      axis.text.y = element_text(size = 12),
+                      axis.ticks = element_blank(),
+                      axis.line.x = element_line("transparent", size = 0.5), 
+                      axis.line.y = element_line("transparent", size = 0.5),
+                      panel.border = element_rect(color = "#a3a3a3", fill = "transparent"),
+                      panel.background = element_rect(fill = "white", color = "white"),
+                      panel.grid.major = element_line(color = "#d4d4d4", linetype = 2),
+                      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+                      plot.subtitle = element_text(size = 10, face = "italic", hjust = 0.5, margin = margin(b = 15)),
+                      plot.caption = element_text(size = 10, hjust = 0),
+                      strip.background = element_rect(fill = "transparent"),
+                      strip.text = element_text(size = 12),
+                      legend.key=element_blank())
+```
+
+```{r}
+set.seed(0)
+```
+
+
+### I. Descriptives
+```{r}
+raw <- read_csv(paste0(path_repo, "/data/df_clean_eng.csv"), show_col_types = FALSE)[,-1] %>% 
+ tibble::rownames_to_column("doc_id")
+```
+
+Platforms:
+```{r}
+raw %>% 
+ group_by(company) %>%
+ summarise(counts = n()) %>% 
+ arrange(desc(counts)) 
+ #tabyl(company) %>% 
+ #arrange(desc(n)) %>% 
+ #adorn_totals("row") %>%
+ #adorn_pct_formatting(digits = 0) %>% 
+ #kable(col.names = c("Company", "# Articles", "Percent")) %>% 
+ #kable_styling(bootstrap_options = c("striped", "condensed", "hover"), 
+ #               full_width = F) %>% 
+ #row_spec(6, bold = T)
+
+```
+
+
+Years:
+```{r}
+raw %>% 
+ group_by(year) %>%
+ summarise(counts = n()) %>% 
+ arrange(desc(year))
+ #tabyl(year) %>% 
+ #arrange(desc(year)) %>% 
+ #adorn_totals("row") %>%
+ #adorn_pct_formatting(digits = 0) %>% 
+ #kable(col.names = c("Year", "# Articles", "Percent")) %>% 
+ #kable_styling(bootstrap_options = c("striped", "condensed", "hover"), 
+ #               full_width = F) %>% 
+ #row_spec(15, bold = T)
+```
+
+Countries:
+```{r}
+raw %>% 
+ filter(country != "None") %>% 
+ group_by(country) %>%
+ summarise(counts = n()) %>%
+ arrange(desc(counts))
+ #tabyl(country) %>% 
+ #arrange(desc(n)) %>% 
+ #adorn_totals("row") %>%
+ #adorn_pct_formatting(digits = 0) %>% 
+ #kable(col.names = c("Country", "# Articles", "Percent")) %>% 
+ #kable_styling(bootstrap_options = c("striped", "condensed", "hover"), 
+                #full_width = F) %>% 
+ #row_spec(39, bold = T)
+```
+
+### II. Document feature matrix
+```{r}
+# create document feature matrix
+dfmat <- raw %>%
+ select(text) %>% 
+ unlist() %>% 
+ tokens(remove_punc = TRUE) %>% 
+ tokens_remove(pattern=stopwords("en")) %>% 
+ tokens_replace(pattern = lexicon::hash_lemmas$token, replacement = lexicon::hash_lemmas$lemma) %>%
+ dfm()
+
+# rename dfm rows with meaningful IDs
+rownames(dfmat) <- raw$doc_id
+
+dfmat
+```
+
+```{r}
+topfeatures(dfmat, n = 10, scheme = "docfreq")
+```
+
+### III. LDA 
+```{r}
+lda <- LDA(dfmat,  25)
+```
+
+```{r}
+# document-topic probability
+topics <- tidy(lda, matrix = "gamma") %>% 
+ left_join(., raw %>% select(!text), by = c("document" = "doc_id"))
+```
+
+```{r}
+# topic by year
+share_period <- topics %>% 
+ filter(year %in% c(2012:2022)) %>% 
+ group_by(year, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(year) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+```
+
+```{r}
+# topic by platform
+share_company <- topics %>% 
+ filter(year %in% c(2012:2022)) %>% 
+ group_by(company, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(company) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+```
+
+```{r}
+ plot1 <- ggplot(share_company, aes(x = topic, y = company, fill = share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Platform",
+       fill = "% share",
+       title = "Share of Topics by Platform",
+       subtitle = "LDA with 25 topics") 
+plot1
+
+ggsave(filename="01_share_platforms.png", plot=plot1, device="png", 
+       path=path_charts, width = 12, height = 7)
+
+```
+
+```{r}
+ plot2 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Year",
+       fill = "% share",
+       title = "Share of Topics by Year",
+       subtitle = "LDA with 25 topics") 
+plot2
+
+ggsave(filename="02_share_year.png", plot=plot2, device="png", 
+       path=path_charts, width = 12, height = 7)
+```
+
+```{r}
+top_words <- tidy(lda, matrix = "beta") %>% 
+ group_by(topic) %>% 
+ slice_max(beta, n = 15) %>% 
+ arrange(topic, -beta)
+top_words
+```
