@@ -95,7 +95,12 @@ out <- prepDocuments(processed$documents, processed$vocab, processed$meta, lower
 #search no. of topics
 kResult <- searchK(out$documents, out$vocab, K=c(10,100), prevalence=~company_search+s(year),
                    data=out$meta)
+```
+
+```{r}
+png(file.path(dir, "/plots/stm_searchK.png"), width = 1000, height = 800)
 plot(kResult)
+dev.off()
 ```
 
 
