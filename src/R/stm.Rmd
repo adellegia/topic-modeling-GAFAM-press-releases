@@ -47,7 +47,9 @@ pacman::p_load(manifestoR, quanteda, tidyr, purrr, ggplot2,
 ```
 
 ```{r}
-df <- read.csv("D:/Desktop/02 Text as Data/antitRust/data/df_clean.csv")
+dir <- "D:/Desktop/02 Text as Data/antitRust"
+
+df <- read.csv(file.path(dir, "data/df_clean_eng.csv"))
 ```
 
 ```{r}
@@ -91,26 +93,30 @@ labelTopics(gafamfit)
 
 ```{r}
 #par(bty="n",col="#de2d26",lwd=3)
+png(file.path(dir, "/plots/stm_top_topics.png"))
 plot.STM(gafamfit,type="summary", n = 5 ,text.cex=.7, width=80, cex.main =.8, xlim=c(0,.3))
-plot(gafamfit, type="labels", topics=c(7,5,10))
-plot(gafamfit, type="labels", topics=c(8,2,9))
-plot(gafamfit, type="labels", topics=c(1,4,6,3))
+dev.off()
+
+plot(gafamfit, type="labels", topics=c(6,10,4))
+plot(gafamfit, type="labels", topics=c(9,2,3))
+plot(gafamfit, type="labels", topics=c(8,1,7,5))
 ```
 
 ```{r}
 # correlation of the topics
 corr <- topicCorr(gafamfit)
 plot(corr)
-plot(gafamfit, type="labels", topics=c(6,9,4,1,10))
+plot(gafamfit, type="labels", topics=c(1,8,7))
+plot(gafamfit, type="labels", topics=c(3,6,5))
 ```
 
 ```{r}
 df_fulltext <- df$text
 df_shorttext <- substr(df$text,1,500)
 
-findThoughts(gafamfit, texts=df$title, n=3, topics=7)
+findThoughts(gafamfit, texts=df$title, n=3, topics=2)
 
-df %>% filter(str_detect(title, "US: Microsoft, Oracle gear up for latest non-poaching fight"))
+#df %>% filter(str_detect(title, "US: Microsoft, Oracle gear up for latest non-poaching fight"))
 
 ```
 
@@ -120,13 +126,18 @@ prep <- estimateEffect(1:10 ~ company+s(year), gafamfit, meta=out$meta,
                        uncertainty="Global")
 
 summary(prep, topics=c(7,10))
+```
 
+
+```{r}
 plot(prep, covariate="company", topics=c(7,5,10), model=gafamfit, 
      method="difference", cov.value1="Amazon", cov.value2="Microsoft",
      xlab="", main="Effect of Company",
      xlim=c(-.15,.15)) #labeltype ="custom", custom.labels=c())
 
 ```
+
+
 ```{r}
 plot(gafamfit, type="perspectives", topics=c(7,10))
      
