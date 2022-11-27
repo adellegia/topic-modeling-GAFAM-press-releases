@@ -49,7 +49,23 @@ pacman::p_load(manifestoR, quanteda, tidyr, purrr, ggplot2,
 ```{r}
 dir <- "D:/Desktop/02 Text as Data/antitRust"
 
-df <- read.csv(file.path(dir, "data/df_clean_eng.csv"))
+df <- read.csv(file.path(dir, "data/df_clean_eng.csv")) %>%
+  mutate(document = 1:4256)
+```
+
+
+```{r}
+df %>% 
+ group_by(year) %>%
+ summarise(counts = n()) %>% 
+ arrange(desc(year))
+
+df %>% 
+ filter(country != "None") %>% 
+ group_by(country) %>%
+ summarise(counts = n()) %>%
+ arrange(desc(counts))
+
 ```
 
 ```{r}
@@ -77,38 +93,154 @@ out <- prepDocuments(processed$documents, processed$vocab, processed$meta, lower
 
 ```{r}
 #search no. of topics
-kResult <- searchK(out$documents, out$vocab, K=c(5,10), prevalence=~company+s(year),
+kResult <- searchK(out$documents, out$vocab, K=c(10,100), prevalence=~company_search+s(year),
                    data=out$meta)
 plot(kResult)
 ```
 
 
 ```{r}
-gafamfit <- stm(out$documents, out$vocab, K=10, prevalence=~company+s(year), 
+gafamfit <- stm(out$documents, out$vocab, K=20, prevalence=~company_search+s(year), 
                        max.em.its=75, data=out$meta, init.type="Spectral", 
                        seed=28)
+```
 
+```{r}
 labelTopics(gafamfit)
 ```
 
 ```{r}
 #par(bty="n",col="#de2d26",lwd=3)
-png(file.path(dir, "/plots/stm_top_topics.png"))
-plot.STM(gafamfit,type="summary", n = 5 ,text.cex=.7, width=80, cex.main =.8, xlim=c(0,.3))
+png(file.path(dir, "/plots/stm_top_topics.png"), width = 1000, height = 800)
+plot.STM(gafamfit,type="summary", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3)) #cex.main =1
 dev.off()
 
-plot(gafamfit, type="labels", topics=c(6,10,4))
-plot(gafamfit, type="labels", topics=c(9,2,3))
-plot(gafamfit, type="labels", topics=c(8,1,7,5))
+png(file.path(dir, "/plots/stm_top_topics_unique.png"), width = 1000, height = 800)
+plot.STM(gafamfit,type="summary", label="frex", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3)) #cex.main =1
+dev.off()
+
+plot(gafamfit, type="labels", topics=c(4,8,14,17))
+plot(gafamfit, type="labels", topics=c(6,16,3,12))
+plot(gafamfit, type="labels", topics=c(11,15,19,20))
 ```
+
+## Topic Correlation
 
 ```{r}
 # correlation of the topics
 corr <- topicCorr(gafamfit)
+png(file.path(dir, "/plots/stm_topic_correlation.png"), width = 1000, height = 800)
 plot(corr)
+dev.off()
+
 plot(gafamfit, type="labels", topics=c(1,8,7))
 plot(gafamfit, type="labels", topics=c(3,6,5))
 ```
+
+## Doc-topic charts
+```{r}
+doc_topic <- tidy(gafamfit, matrix = "theta") %>%
+  left_join(out$meta, by="document")
+
+# topic by platform
+share_company <- doc_topic %>% 
+ filter(year %in% c(2012:2022)) %>% 
+ group_by(company_search, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(company_search) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+
+plot1 <- ggplot(share_company, aes(x = topic, y = company_search, fill = share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Platform",
+       fill = "% share",
+       title = "Share of Topics by Platform",
+       subtitle = "STM with 20 topics") 
+plot1
+ggsave(filename=file.path(dir, "plots/stm_share_platforms.png"), plot=plot1, device="png", 
+       width = 12, height = 7)
+
+```
+
+
+```{r}
+# topic by year
+share_period <- doc_topic %>%
+  filter(year %in% c(2012:2022)) %>% 
+  group_by(year, topic) %>%
+  summarise(gamma = sum(gamma)) %>%
+  group_by(year) %>%
+  mutate(year_share = gamma/sum(gamma)) %>%
+  ungroup() %>%
+  mutate(topic = factor(topic))
+
+plot2 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = year_share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Year",
+       fill = "% share",
+       title = "Share of Topics by Year",
+       subtitle = "STM with 20 topics") 
+plot2
+ggsave(filename= file.path(dir, "plots/stm_share_year.png"), plot=plot2, device="png", 
+       width = 12, height = 7)
+
+```
+
+## Topic-term charts
+```{r}
+topic_term <- tidy(gafamfit, matrix = "beta")
+
+term_share <- topic_term %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+plot3 <-term_share %>%
+      mutate(term = reorder_within(term, beta, topic)) %>%
+      ggplot(aes(beta, term, fill = "red")) +
+      geom_bar(stat="identity", width = .5) +
+      facet_wrap(~ topic, scales = "free", ncol=5) + 
+      #xlim(0, 0.08) +
+      scale_y_reordered() +
+      labs(title = "STM") +
+      scale_fill_identity() +
+      theme_test() +
+      theme(axis.text.y = element_text(size = 8),
+            axis.text.x = element_text(size = 8),
+            strip.text.x = element_text(size = 8)) +
+    labs(y = "Term", x = "Term probability per topic") 
+
+plot3
+
+ggsave(filename= file.path(dir, "plots/stm_term_share.png"), plot=plot3, device="png", 
+       width = 12, height = 7)
+```
+
 
 ```{r}
 df_fulltext <- df$text
@@ -119,6 +251,8 @@ findThoughts(gafamfit, texts=df$title, n=3, topics=2)
 #df %>% filter(str_detect(title, "US: Microsoft, Oracle gear up for latest non-poaching fight"))
 
 ```
+
+## Estimate Effect
 
 ```{r}
 out$meta$company <- as.factor(out$meta$company)
