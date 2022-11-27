@@ -23,7 +23,7 @@ path_charts = paste0(path_repo, "/plots")
 ```{r, include = FALSE}
 charts.theme <- theme(axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
                       axis.title.y.right = element_text(size = 12, margin = margin(l = 15)),
-                      axis.title.x = element_text(size = 12, margin = margin(t = 15)),
+                      axis.title.x = element_text(size = 12, margin = margin(t = 15, b = 8)),
                       axis.text.x = element_text(size = 12),
                       axis.text.y = element_text(size = 12),
                       axis.ticks = element_blank(),
@@ -34,7 +34,7 @@ charts.theme <- theme(axis.title.y.left = element_text(size = 12, margin = margi
                       panel.grid.major = element_line(color = "#d4d4d4", linetype = 2),
                       plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
                       plot.subtitle = element_text(size = 10, face = "italic", hjust = 0.5, margin = margin(b = 15)),
-                      plot.caption = element_text(size = 10, hjust = 0),
+                      plot.caption = element_text(size = 10, hjust = 0, face = "italic"),
                       strip.background = element_rect(fill = "transparent"),
                       strip.text = element_text(size = 12),
                       legend.key=element_blank())
@@ -62,7 +62,6 @@ raw %>%
  #row_spec(6, bold = T)
 
 ```
-
 
 Years:
 ```{r}
@@ -160,7 +159,7 @@ Document-topic probabilities: share by platform
        y = "Platform",
        fill = "% share",
        title = "Share of Topics by Platform",
-       subtitle = "LDA with 25 topics") 
+       subtitle = "LDA with 12 topics") 
 plot1
 
 ggsave(filename="lda_share_platforms.png", plot=plot1, device="png", 
@@ -219,13 +218,13 @@ unique_words <- words_df %>%
  mutate(non_an = grepl("[^\\p{L} ]", term, perl = TRUE)) %>% 
  filter(unique == "unique", non_an == FALSE) %>% 
  group_by(topic) %>% 
- slice_max(beta, n=15) %>% 
+ slice_max(beta, n=10) %>% 
  ungroup() %>% 
  arrange(topic, beta)
 ```
 
 ```{r}
-plot3 <-  ggplot(unique_words, aes(beta, reorder(term, beta))) +
+plot3 <-  ggplot(unique_words %>% filter(!(topic %in% c(2, 12))), aes(beta, reorder(term, beta))) +
   geom_col(show.legend = FALSE, fill = "#234075") +
   facet_wrap(~ topic, scales = "free", nrow = 2) +
   labs(title = "Top 10 words per topic") + 
@@ -236,10 +235,11 @@ plot3 <-  ggplot(unique_words, aes(beta, reorder(term, beta))) +
 plot3
 
 ggsave(filename="lda_words.png", plot=plot3, device="png", 
-       path=path_charts, width = 15, height = 7)
+       path=path_charts, width = 18, height = 7)
 ```
 
 
+##### By year
 ```{r}
 # topic by year
 share_period <- topics %>% 
@@ -252,9 +252,9 @@ share_period <- topics %>%
  mutate(topic = factor(topic))
 ```
 
-
+Document-topic probabilities: share by year
 ```{r}
- plot2 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = share)) +
+ plot4 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = share)) +
   geom_tile() +
   scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
   theme_minimal() +
@@ -270,17 +270,107 @@ share_period <- topics %>%
        y = "Year",
        fill = "% share",
        title = "Share of Topics by Year",
-       subtitle = "LDA with 25 topics") 
-plot2
+       subtitle = "LDA with 12 topics") 
+plot4
 
-ggsave(filename="02_share_year.png", plot=plot2, device="png", 
-       path=path_charts, width = 12, height = 7)
+ggsave(filename="lda_share_year.png", plot=plot4, device="png", 
+       path=path_charts, width = 10, height = 7)
+```
+
+##### By region
+**Note: smaller dataset**
+```{r}
+continents <- read_csv(paste0(path_repo, "/data/others/continents.csv")) %>% 
+ select(name, region)
+colnames(continents)[1] <- "country"
+
+topics_region <- left_join(topics, continents) %>% 
+ filter(!is.na(region)) %>% 
+ mutate(eu = ifelse(region == "Europe", "Europe", "Outside Europe"))
+
+topics_region %>% 
+ group_by(eu) %>% 
+ summarise(counts = n())
+```
+
+Document-topic probabilities: share by region
+```{r}
+share_eu <- topics_region %>% 
+ group_by(eu, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(eu) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+
+region_df <- share_eu %>% 
+ group_by(eu) %>% 
+ mutate(alpha = ifelse(max(share) == share, "yes", "no"), 
+        share = ifelse(eu == "Europe", -1*share, share))
 ```
 
 ```{r}
-top_words <- tidy(lda, matrix = "beta") %>% 
- group_by(topic) %>% 
- slice_max(beta, n = 15) %>% 
- arrange(topic, -beta)
-top_words
+plot5 <-  ggplot(region_df %>% filter(abs(share) > 0.04), aes(x=fct_rev(topic), y=share*100, label=eu)) + 
+  geom_hline(yintercept = 0, size = 0.4, linetype = 2) +
+  geom_point(stat='identity', fill="black", size=6, aes(color = eu, alpha = alpha))  +
+  geom_segment(aes(y = 0, 
+                   x = topic, 
+                   yend = ifelse(eu == "Europe", share*100 + 0.5, share*100 - 0.5), 
+                   xend = topic, 
+                   color = eu,
+                   alpha = alpha),
+               size = 1.5) +
+  labs(title="Share of Topics by Region", 
+       subtitle="Europe vs Outside Europe",
+       caption="Note: Only for documents with mention of a country in the title or text. 
+       Topics with less than 3% share removed.",
+       color = "") + 
+  xlab("topic") + 
+  ylab("% share of topic") + 
+  scale_y_continuous(labels = abs) + 
+  scale_color_manual(values = c("#234075", "#ba0000")) + 
+  scale_alpha_manual(values = c(0.6, 1)) + 
+  guides(alpha = "none") + 
+  charts.theme +
+  coord_flip()
+plot5
+
+ggsave(filename="lda_share_eu.png", plot=plot5, device="png", 
+       path=path_charts, width = 10, height = 7)
 ```
+
+```{r}
+share_region <- topics_region %>% 
+ group_by(region, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(region) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+```
+
+Document-topic probabilities: share by region
+```{r}
+ plot6 <- ggplot(share_region, aes(x = topic, y = fct_rev(region), fill = share)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", 
+                                     hjust = 0.5, margin = margin(b = 15)),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.title.y.left = element_text(size = 12, margin = margin(r = 15)),
+        axis.title.x = element_text(size = 12, margin = margin(t = 15))) +
+  labs(x = "Topics",
+       y = "Region",
+       fill = "% share",
+       title = "Share of Topics by Region",
+       subtitle = "LDA with 12 topics") 
+plot6
+
+ggsave(filename="lda_share_region.png", plot=plot6, device="png", 
+       path=path_charts, width = 10, height = 7)
+```
+
