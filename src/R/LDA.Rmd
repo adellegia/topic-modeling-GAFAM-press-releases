@@ -17,7 +17,7 @@ pacman::p_load(tidyverse, readr, stringr, quanteda, quanteda.textstats, rvest,
                janitor)
 
 path_repo <- "/Users/janinedevera/Documents/School/MDS 2021-2023/Semester 3/2 Text as Data/Project/antitRust"
-path_charts = paste0(path_repo, "/src/R/charts")
+path_charts = paste0(path_repo, "/plots")
 ```
 
 ```{r, include = FALSE}
@@ -40,11 +40,6 @@ charts.theme <- theme(axis.title.y.left = element_text(size = 12, margin = margi
                       legend.key=element_blank())
 ```
 
-```{r}
-set.seed(0)
-```
-
-
 ### I. Descriptives
 ```{r}
 raw <- read_csv(paste0(path_repo, "/data/df_clean_eng.csv"), show_col_types = FALSE)[,-1] %>% 
@@ -54,7 +49,7 @@ raw <- read_csv(paste0(path_repo, "/data/df_clean_eng.csv"), show_col_types = FA
 Platforms:
 ```{r}
 raw %>% 
- group_by(company) %>%
+ group_by(company_search) %>%
  summarise(counts = n()) %>% 
  arrange(desc(counts)) 
  #tabyl(company) %>% 
@@ -125,7 +120,7 @@ topfeatures(dfmat, n = 10, scheme = "docfreq")
 
 ### III. LDA 
 ```{r}
-lda <- LDA(dfmat,  25)
+lda <- LDA(dfmat, control = list(alpha = 0.3, seed = 0), k = 12)
 ```
 
 ```{r}
@@ -134,32 +129,22 @@ topics <- tidy(lda, matrix = "gamma") %>%
  left_join(., raw %>% select(!text), by = c("document" = "doc_id"))
 ```
 
-```{r}
-# topic by year
-share_period <- topics %>% 
- filter(year %in% c(2012:2022)) %>% 
- group_by(year, topic) %>% 
- summarise(gamma = sum(gamma)) %>% 
- group_by(year) %>% 
- mutate(share = gamma/sum(gamma)) %>% 
- ungroup() %>% 
- mutate(topic = factor(topic))
-```
-
+##### By platform
 ```{r}
 # topic by platform
 share_company <- topics %>% 
  filter(year %in% c(2012:2022)) %>% 
- group_by(company, topic) %>% 
+ group_by(company_search, topic) %>% 
  summarise(gamma = sum(gamma)) %>% 
- group_by(company) %>% 
+ group_by(company_search) %>% 
  mutate(share = gamma/sum(gamma)) %>% 
  ungroup() %>% 
  mutate(topic = factor(topic))
 ```
 
+Document-topic probabilities: share by platform
 ```{r}
- plot1 <- ggplot(share_company, aes(x = topic, y = company, fill = share)) +
+ plot1 <- ggplot(share_company, aes(x = topic, y = fct_rev(company_search), fill = share)) +
   geom_tile() +
   scale_fill_gradient2(high = "darkred", labels=scales::label_percent(accuracy = 1L)) +
   theme_minimal() +
@@ -178,10 +163,95 @@ share_company <- topics %>%
        subtitle = "LDA with 25 topics") 
 plot1
 
-ggsave(filename="01_share_platforms.png", plot=plot1, device="png", 
-       path=path_charts, width = 12, height = 7)
+ggsave(filename="lda_share_platforms.png", plot=plot1, device="png", 
+       path=path_charts, width = 10, height = 7)
 
 ```
+
+Uniqueness of terms
+```{r}
+# topic-word probability (words most common in each topic)
+top_words <- tidy(lda, matrix = "beta") %>% 
+ group_by(topic) %>% 
+ slice_max(beta, n = 50) %>% 
+ ungroup() %>%
+ arrange(topic, -beta)
+top_words
+
+# categorize top words as unique or common 
+words <- top_words %>% 
+ group_by(term) %>% 
+ summarise(counts = n()) %>% 
+ arrange(counts) %>% 
+ mutate(unique = ifelse(counts == 1, "unique", "common"))
+
+words %>% 
+ group_by(unique) %>% 
+ summarise(counts = n())
+
+# df with word classification
+words_df <- left_join(top_words, words)
+```
+
+```{r}
+plot2 <- ggplot(words_df %>% distinct(term, unique, .keep_all = TRUE), aes(x = unique, beta)) +
+ geom_jitter(aes(color = unique), size = 4, alpha = 0.7) + 
+ scale_color_manual(values = c("#ba0000", "#234075")) + 
+ scale_alpha_manual(values = c(0.6, 0.6)) + 
+ xlab("") + 
+ ylab("beta") + 
+ scale_y_continuous(limits = c(0, 0.03)) + 
+ guides(alpha = "none") + 
+ labs(title = "Common vs Unique Words",
+      subtitle = "top 50 words per topic") + 
+ guides(color = "none") + 
+ charts.theme
+plot2
+
+ggsave(filename="lda_common_vs_unique.png", plot=plot2, device="png", 
+       path=path_charts, width = 10, height = 7)
+```
+**More unique words but higher probability of common words occurring.**
+
+Topic-word probabilities
+```{r}
+unique_words <- words_df %>% 
+ mutate(non_an = grepl("[^\\p{L} ]", term, perl = TRUE)) %>% 
+ filter(unique == "unique", non_an == FALSE) %>% 
+ group_by(topic) %>% 
+ slice_max(beta, n=15) %>% 
+ ungroup() %>% 
+ arrange(topic, beta)
+```
+
+```{r}
+plot3 <-  ggplot(unique_words, aes(beta, reorder(term, beta))) +
+  geom_col(show.legend = FALSE, fill = "#234075") +
+  facet_wrap(~ topic, scales = "free", nrow = 2) +
+  labs(title = "Top 10 words per topic") + 
+  xlab("beta") + 
+  ylab("") +
+  charts.theme + 
+  scale_y_reordered()
+plot3
+
+ggsave(filename="lda_words.png", plot=plot3, device="png", 
+       path=path_charts, width = 15, height = 7)
+```
+
+
+```{r}
+# topic by year
+share_period <- topics %>% 
+ filter(year %in% c(2012:2022)) %>% 
+ group_by(year, topic) %>% 
+ summarise(gamma = sum(gamma)) %>% 
+ group_by(year) %>% 
+ mutate(share = gamma/sum(gamma)) %>% 
+ ungroup() %>% 
+ mutate(topic = factor(topic))
+```
+
 
 ```{r}
  plot2 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = share)) +
