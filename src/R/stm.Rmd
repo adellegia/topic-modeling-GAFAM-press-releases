@@ -87,21 +87,22 @@ processed <- textProcessor(documents=df$text,
 
 plotRemoved(processed$documents, lower.thresh=seq(1,200, by=100))
 
+processed$vocab <- str_replace_all(processed$vocab, "[â|ä|ã|€|µ|º]", "")
 out <- prepDocuments(processed$documents, processed$vocab, processed$meta, lower.thresh = 20)
 
 ```
 
-```{r}
-#search no. of topics
-kResult <- searchK(out$documents, out$vocab, K=c(10,100), prevalence=~company_search+s(year),
-                   data=out$meta)
-```
-
-```{r}
-png(file.path(dir, "/plots/stm_searchK.png"), width = 1000, height = 800)
-plot(kResult)
-dev.off()
-```
+# ```{r}
+# #search no. of topics
+# kResult <- searchK(out$documents, out$vocab, K=c(10,100), prevalence=~company_search+s(year),
+#                    data=out$meta)
+# ```
+# 
+# ```{r}
+# png(file.path(dir, "/plots/stm_searchK.png"), width = 1000, height = 800)
+# plot(kResult)
+# dev.off()
+# ```
 
 
 ```{r}
@@ -124,20 +125,46 @@ png(file.path(dir, "/plots/stm_top_topics_unique.png"), width = 1000, height = 8
 plot.STM(gafamfit,type="summary", label="frex", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3)) #cex.main =1
 dev.off()
 
-plot(gafamfit, type="labels", topics=c(4,8,14,17))
+plot.STM(gafamfit,type="summary", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3))
+plot.STM(gafamfit,type="summary", label="frex", n = 10 ,text.cex=1.2, width=80, height=90, xlim=c(0,.3))
+plot(gafamfit, type="labels", topics=c(4,8,14,17)) #label = "frex",
 plot(gafamfit, type="labels", topics=c(6,16,3,12))
 plot(gafamfit, type="labels", topics=c(11,15,19,20))
 ```
+
+Topics (**interesting results)
+Topic 4 - EC investigation on Reuter
+Topic 8 - US FTC investigation on big tech industries brought to senate
+Topic 14 - new business investment from Uber to Tiktok
+Topic 17 - EC rules on fines
+Topic 6 - 
+**Topic 16 - Social media platforms for news content Facebook, Instagram, Meta, Twitter
+Topic 3 - mergers and acquisitions in general
+**Topic 12 - competition in innovative markets and platforms
+**Topic 11 - online retail market in India (Amazon, Flipkart)
+Topic 15 - Google search engine dominant position
+Topic 19
+**Topic 20 - app/game store payment system (Apple vs Fortnite Epic games)
+**Topic 10 - music streaming and apple's mobile payment service 
+**Topic 5 - data privacy and protection (Facebook, Whatsapp)
+Topic 7 - competition enforcement in general
+Topic 1 - mobile device/smartphone's operating system 
+Topic 13 - digital markets act
+Topic 2 - Microsoft cloud services
+Topic 18 - online advertising Google, Youtube
+**Topic 9 - patent and licensing mobile phones (Qualcomm, Samsung, Nokia, Motorola)
 
 ## Topic Correlation
 
 ```{r}
 # correlation of the topics
 corr <- topicCorr(gafamfit)
-png(file.path(dir, "/plots/stm_topic_correlation.png"), width = 1000, height = 800)
-plot(corr)
-dev.off()
 
+# png(file.path(dir, "/plots/stm_topic_correlation.png"), width = 1000, height = 800)
+# plot(corr)
+# dev.off()
+
+plot(corr)
 plot(gafamfit, type="labels", topics=c(1,8,7))
 plot(gafamfit, type="labels", topics=c(3,6,5))
 ```
@@ -175,8 +202,8 @@ plot1 <- ggplot(share_company, aes(x = topic, y = company_search, fill = share))
        title = "Share of Topics by Platform",
        subtitle = "STM with 20 topics") 
 plot1
-ggsave(filename=file.path(dir, "plots/stm_share_platforms.png"), plot=plot1, device="png", 
-       width = 12, height = 7)
+# ggsave(filename=file.path(dir, "plots/stm_share_platforms.png"), plot=plot1, device="png", 
+#        width = 12, height = 7)
 
 ```
 
@@ -210,8 +237,8 @@ plot2 <- ggplot(share_period, aes(x = topic, y = as.factor(year), fill = year_sh
        title = "Share of Topics by Year",
        subtitle = "STM with 20 topics") 
 plot2
-ggsave(filename= file.path(dir, "plots/stm_share_year.png"), plot=plot2, device="png", 
-       width = 12, height = 7)
+# ggsave(filename= file.path(dir, "plots/stm_share_year.png"), plot=plot2, device="png", 
+#        width = 12, height = 7)
 
 ```
 
@@ -242,7 +269,7 @@ plot3 <-term_share %>%
 
 plot3
 
-ggsave(filename= file.path(dir, "plots/stm_term_share.png"), plot=plot3, device="png", 
+ggsave(filename= file.path(dir, "plots/stm_term_share.png"), plot=plot3, device="png",
        width = 12, height = 7)
 ```
 
@@ -251,7 +278,7 @@ ggsave(filename= file.path(dir, "plots/stm_term_share.png"), plot=plot3, device=
 df_fulltext <- df$text
 df_shorttext <- substr(df$text,1,500)
 
-findThoughts(gafamfit, texts=df$title, n=3, topics=2)
+findThoughts(gafamfit, texts=df_shorttext, n=3, topics=20)
 
 #df %>% filter(str_detect(title, "US: Microsoft, Oracle gear up for latest non-poaching fight"))
 
@@ -260,16 +287,16 @@ findThoughts(gafamfit, texts=df$title, n=3, topics=2)
 ## Estimate Effect
 
 ```{r}
-out$meta$company <- as.factor(out$meta$company)
-prep <- estimateEffect(1:10 ~ company+s(year), gafamfit, meta=out$meta, 
+out$meta$company_search <- as.factor(out$meta$company_search)
+prep <- estimateEffect(1:20 ~ company_search+s(year), gafamfit, meta=out$meta, 
                        uncertainty="Global")
 
-summary(prep, topics=c(7,10))
+summary(prep, topics=c(20))
 ```
 
 
 ```{r}
-plot(prep, covariate="company", topics=c(7,5,10), model=gafamfit, 
+plot(prep, covariate="company_search", topics=c(20), model=gafamfit, 
      method="difference", cov.value1="Amazon", cov.value2="Microsoft",
      xlab="", main="Effect of Company",
      xlim=c(-.15,.15)) #labeltype ="custom", custom.labels=c())
